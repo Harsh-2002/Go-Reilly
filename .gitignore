@@ -1,0 +1,12 @@
+# Binary
+goreilly
+
+# Books and downloads
+Books/
+Converted/
+
+# Cookies
+cookies.json
+
+# Embedded static copy
+cmd/server/static/
