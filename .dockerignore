@@ -6,3 +6,4 @@ Converted
 cookies.json
 goreilly
 cmd/server/static
+.env

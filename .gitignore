@@ -10,3 +10,5 @@ cookies.json
 
 # Embedded static copy
 cmd/server/static/
+
+.env
