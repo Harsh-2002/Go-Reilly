@@ -64,38 +64,53 @@ function toggleTheme() {
 // ============================================================================
 
 function showProcessing(message = 'Processing...') {
+    // Always get fresh references from DOM
+    const processingStatus = document.getElementById('input-processing-status');
+    const processingText = document.getElementById('input-processing-text');
+    const btn = document.getElementById('input-download-btn');
+    
     // Show processing in input bar
-    if (inputProcessingStatus) {
-        inputProcessingStatus.classList.remove('hidden');
-        inputProcessingText.textContent = message;
+    if (processingStatus && processingText) {
+        processingStatus.classList.remove('hidden');
+        processingText.textContent = message;
     }
     // Hide download button
-    if (inputDownloadBtn) {
-        inputDownloadBtn.classList.add('hidden');
+    if (btn) {
+        btn.classList.add('hidden');
     }
 }
 
 function hideProcessing() {
-    if (inputProcessingStatus) {
-        inputProcessingStatus.classList.add('hidden');
+    const processingStatus = document.getElementById('input-processing-status');
+    if (processingStatus) {
+        processingStatus.classList.add('hidden');
     }
 }
 
 function showDownloadReady(epubSize, epubUrl) {
     hideProcessing();
     
-    // Show download button in input bar
-    if (inputDownloadBtn && epubSize) {
-        inputDownloadBtn.classList.remove('hidden');
-        const sizeInMB = (epubSize / (1024 * 1024)).toFixed(1);
-        inputEpubSize.textContent = `(${sizeInMB} MB)`;
-        inputDownloadBtn.setAttribute('data-url', epubUrl || '');
+    // Always get fresh reference from DOM
+    const btn = document.getElementById('input-download-btn');
+    const sizeSpan = document.getElementById('input-epub-size');
+    
+    if (btn && epubSize) {
+        console.log('[Download] Showing download button with size:', epubSize);
+        btn.classList.remove('hidden');
+        if (sizeSpan) {
+            const sizeInMB = (epubSize / (1024 * 1024)).toFixed(1);
+            sizeSpan.textContent = `(${sizeInMB} MB)`;
+        }
+        btn.setAttribute('data-url', epubUrl || '');
+    } else {
+        console.error('[Download] Cannot show button - btn:', !!btn, 'epubSize:', epubSize);
     }
 }
 
 function hideDownloadReady() {
-    if (inputDownloadBtn) {
-        inputDownloadBtn.classList.add('hidden');
+    const btn = document.getElementById('input-download-btn');
+    if (btn) {
+        btn.classList.add('hidden');
     }
 }
 
@@ -292,8 +307,6 @@ async function handleCompletion(data, downloadId) {
         delete pollIntervals[downloadId];
     }
     
-    const visibleDownloadId = document.body.getAttribute('data-current-download');
-    
     // Check if this is a cached book
     const isCached = data.cached === true;
     
@@ -321,37 +334,44 @@ async function handleCompletion(data, downloadId) {
         
         activeDownloads[downloadId].fileInfo = fileInfo;
         
-        if (!visibleDownloadId || visibleDownloadId === downloadId) {
-            setTimeout(() => {
-                showDownloadReady(
-                    fileInfo.epub_size || fileInfo.file_size,
-                    fileInfo.epub_url || fileInfo.minio_url
-                );
-                setupDownloadButtons(fileInfo, downloadId);
-            }, 300);
-        }
+        // Always show download button for completed downloads
+        console.log('[Download] Showing download button for:', downloadId);
+        showDownloadReady(
+            fileInfo.epub_size || fileInfo.file_size,
+            fileInfo.epub_url || fileInfo.minio_url
+        );
+        setupDownloadButtons(fileInfo, downloadId);
         
     } catch (error) {
         console.error(`Error getting file info for ${downloadId}:`, error);
         delete activeDownloads[downloadId];
-        
-        if (!visibleDownloadId || visibleDownloadId === downloadId) {
-            showError('Unable to prepare your book for download. Please try again.', true);
-        }
+        showError('Unable to prepare your book for download. Please try again.', true);
+        hideProcessing();
     }
 }
 
 function setupDownloadButtons(fileInfo, downloadId) {
-    if (!inputDownloadBtn) return;
+    const btn = document.getElementById('input-download-btn');
+    if (!btn) {
+        console.error('[Download] Button element not found!');
+        return;
+    }
     
-    // Setup download button in input bar
-    const newBtn = inputDownloadBtn.cloneNode(true);
-    inputDownloadBtn.parentNode.replaceChild(newBtn, inputDownloadBtn);
+    console.log('[Download] Setting up download button');
     
-    document.getElementById('input-download-btn').addEventListener('click', () => {
+    // Remove old event listeners by cloning
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+    
+    // Add click handler to the new button
+    newBtn.addEventListener('click', () => {
         const downloadUrl = fileInfo.epub_url || fileInfo.minio_url || `${API_BASE}/api/file/${downloadId}`;
+        console.log('[Download] Opening:', downloadUrl);
         window.open(downloadUrl, '_blank');
     });
+    
+    // Ensure button is visible
+    newBtn.classList.remove('hidden');
 }
 
 // ============================================================================
