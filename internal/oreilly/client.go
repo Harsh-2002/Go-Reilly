@@ -28,6 +28,7 @@ const (
 	APIOriginHost  = "api." + OrlyBaseHost
 	SafariBaseURL  = "https://" + SafariBaseHost
 	ProfileURL     = SafariBaseURL + "/profile/"
+	tmpBooksDir    = "/tmp/goreilly/books"
 )
 
 // Client handles O'Reilly book downloads
@@ -255,8 +256,11 @@ func (c *Client) GetChapters() error {
 
 // createDirectories creates necessary directory structure
 func (c *Client) createDirectories() error {
+	// Ensure tmp books directory exists
+	os.MkdirAll(tmpBooksDir, 0755)
+	
 	cleanTitle := cleanFilename(c.bookInfo.Title)
-	c.bookPath = filepath.Join("Books", fmt.Sprintf("%s (%s)", cleanTitle, c.bookID))
+	c.bookPath = filepath.Join(tmpBooksDir, fmt.Sprintf("%s (%s)", cleanTitle, c.bookID))
 
 	dirs := []string{
 		c.bookPath,

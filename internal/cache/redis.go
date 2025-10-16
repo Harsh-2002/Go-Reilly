@@ -20,8 +20,8 @@ type RedisClient struct {
 type BookCacheInfo struct {
 	BookID      string    `json:"book_id"`
 	BookTitle   string    `json:"book_title"`
-	MinIOPath   string    `json:"minio_path"`
-	FileSize    int64     `json:"file_size"`
+	EpubPath    string    `json:"epub_path"`    // MinIO object path (not URL)
+	EpubSize    int64     `json:"epub_size,omitempty"`
 	UploadedAt  time.Time `json:"uploaded_at"`
 	ISBN        string    `json:"isbn,omitempty"`
 }

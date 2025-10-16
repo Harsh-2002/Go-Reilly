@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"os"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -28,8 +28,9 @@ func main() {
 
 	port := cfg.Port
 
-	os.MkdirAll("Books", 0755)
-	os.MkdirAll("Converted", 0755)
+	// Set presigned URL expiry duration
+	handlers.PresignedURLExpiry = time.Duration(cfg.PresignedURLExpiry) * time.Hour
+	log.Printf("Presigned URL expiry set to: %d hours", cfg.PresignedURLExpiry)
 
 	// Initialize Redis client
 	redisClient, err := cache.NewRedisClient(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
@@ -62,6 +63,7 @@ func main() {
 	router.HandleFunc("/api/status/{id}", handlers.GetStatusHandler).Methods("GET")
 	router.HandleFunc("/api/file/{id}", handlers.GetFileHandler).Methods("GET")
 	router.HandleFunc("/api/file/{id}/info", handlers.GetFileInfoHandler).Methods("GET")
+	router.HandleFunc("/api/stats", handlers.GetStatsHandler).Methods("GET")
 
 	staticContent, _ := fs.Sub(staticFS, "static")
 	router.PathPrefix("/").Handler(http.FileServer(http.FS(staticContent)))

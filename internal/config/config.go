@@ -18,12 +18,13 @@ type Config struct {
 	RedisPassword string
 
 	// MinIO
-	MinIOEndpoint  string
-	MinIOAccessKey string
-	MinIOSecretKey string
-	MinIOBucket    string
-	MinIOUseSSL    bool
-	MinIORegion    string
+	MinIOEndpoint      string
+	MinIOAccessKey     string
+	MinIOSecretKey     string
+	MinIOBucket        string
+	MinIOUseSSL        bool
+	MinIORegion        string
+	PresignedURLExpiry int // Expiry time in hours for presigned URLs
 }
 
 // LoadConfig loads configuration from environment variables
@@ -32,16 +33,17 @@ func LoadConfig() (*Config, error) {
 	godotenv.Load()
 
 	config := &Config{
-		Port:           getEnv("PORT", "3000"),
-		RedisHost:      getEnv("REDIS_HOST", "localhost"),
-		RedisPort:      getEnv("REDIS_PORT", "6379"),
-		RedisPassword:  getEnv("REDIS_PASSWORD", ""),
-		MinIOEndpoint:  getEnv("MINIO_ENDPOINT", "localhost:9000"),
-		MinIOAccessKey: getEnv("MINIO_ACCESS_KEY", ""),
-		MinIOSecretKey: getEnv("MINIO_SECRET_KEY", ""),
-		MinIOBucket:    getEnv("MINIO_BUCKET", "gorielly"),
-		MinIOUseSSL:    getEnvBool("MINIO_USE_SSL", false),
-		MinIORegion:    getEnv("MINIO_REGION", "us-east-1"),
+		Port:               getEnv("PORT", "3000"),
+		RedisHost:          getEnv("REDIS_HOST", "localhost"),
+		RedisPort:          getEnv("REDIS_PORT", "6379"),
+		RedisPassword:      getEnv("REDIS_PASSWORD", ""),
+		MinIOEndpoint:      getEnv("MINIO_ENDPOINT", "localhost:9000"),
+		MinIOAccessKey:     getEnv("MINIO_ACCESS_KEY", ""),
+		MinIOSecretKey:     getEnv("MINIO_SECRET_KEY", ""),
+		MinIOBucket:        getEnv("MINIO_BUCKET", "gorielly"),
+		MinIOUseSSL:        getEnvBool("MINIO_USE_SSL", false),
+		MinIORegion:        getEnv("MINIO_REGION", "us-east-1"),
+		PresignedURLExpiry: getEnvInt("PRESIGNED_URL_EXPIRY_HOURS", 1), // Default 1 hour (URLs generated fresh on-demand)
 	}
 
 	return config, nil
@@ -58,6 +60,15 @@ func getEnvBool(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		if b, err := strconv.ParseBool(value); err == nil {
 			return b
+		}
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if i, err := strconv.Atoi(value); err == nil {
+			return i
 		}
 	}
 	return defaultValue

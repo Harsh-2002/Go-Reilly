@@ -88,8 +88,10 @@ func (m *MinIOClient) UploadFile(bookID, localFilePath string) (string, int64, e
 	}
 	defer file.Close()
 
-	// Upload file
+	// Set content type for EPUB
 	contentType := "application/epub+zip"
+	
+	// Upload file
 	uploadInfo, err := m.client.PutObject(
 		m.ctx,
 		m.bucketName,
@@ -109,7 +111,13 @@ func (m *MinIOClient) UploadFile(bookID, localFilePath string) (string, int64, e
 }
 
 // FileExists checks if a file exists in MinIO under bookID folder
-func (m *MinIOClient) FileExists(bookID string) (bool, string, int64, error) {
+// ext parameter is optional - if provided (e.g., ".epub"), will look for that specific extension
+func (m *MinIOClient) FileExists(bookID string, ext ...string) (bool, string, int64, error) {
+	targetExt := ".epub" // EPUB only
+	if len(ext) > 0 && ext[0] != "" {
+		targetExt = ext[0]
+	}
+	
 	// List objects under bookID prefix
 	objectCh := m.client.ListObjects(m.ctx, m.bucketName, minio.ListObjectsOptions{
 		Prefix:    bookID + "/",
@@ -121,8 +129,8 @@ func (m *MinIOClient) FileExists(bookID string) (bool, string, int64, error) {
 			return false, "", 0, object.Err
 		}
 
-		// Check if it's an epub file
-		if filepath.Ext(object.Key) == ".epub" {
+		// Check if it matches the target extension
+		if filepath.Ext(object.Key) == targetExt {
 			return true, object.Key, object.Size, nil
 		}
 	}

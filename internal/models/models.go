@@ -70,9 +70,11 @@ type Download struct {
 	FilePath   string    `json:"file_path,omitempty"`
 	BookTitle  string    `json:"book_title,omitempty"`
 	FileSize   int64     `json:"file_size,omitempty"`
+	EpubSize   int64     `json:"epub_size,omitempty"`
 	Timestamp  int64     `json:"timestamp"`
 	Cached     bool      `json:"cached"`
 	MinIOURL   string    `json:"minio_url,omitempty"`
+	EpubURL    string    `json:"epub_url,omitempty"`
 	UploadedAt time.Time `json:"uploaded_at,omitempty"`
 	mutex      sync.RWMutex
 }
@@ -86,13 +88,22 @@ func (d *Download) UpdateStatus(status, message string, progress int) {
 	d.Progress = progress
 }
 
-// SetError safely sets error
-func (d *Download) SetError(err string) {
+// SetError safely sets error and schedules cleanup
+func (d *Download) SetError(err string, cleanupFunc func(string)) {
 	d.mutex.Lock()
-	defer d.mutex.Unlock()
 	d.Status = "error"
 	d.Error = err
 	d.Message = err
+	downloadID := d.ID
+	d.mutex.Unlock()
+	
+	// Cleanup from memory after 2 minutes (enough time for client to see error)
+	if cleanupFunc != nil {
+		go func() {
+			time.Sleep(2 * time.Minute)
+			cleanupFunc(downloadID)
+		}()
+	}
 }
 
 // GetStatus safely gets status
