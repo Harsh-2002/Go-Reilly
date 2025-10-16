@@ -9,21 +9,51 @@ import (
 	"os"
 
 	"github.com/gorilla/mux"
-	"goreilly/internal/handlers"
 	"github.com/rs/cors"
+	"goreilly/internal/cache"
+	"goreilly/internal/config"
+	"goreilly/internal/handlers"
+	"goreilly/internal/storage"
 )
 
 //go:embed static
 var staticFS embed.FS
 
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "3000"
+	// Load configuration
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
+
+	port := cfg.Port
 
 	os.MkdirAll("Books", 0755)
 	os.MkdirAll("Converted", 0755)
+
+	// Initialize Redis client
+	redisClient, err := cache.NewRedisClient(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
+	if err != nil {
+		log.Printf("WARNING: Redis unavailable - %v", err)
+	} else {
+		handlers.RedisClient = redisClient
+		defer redisClient.Close()
+	}
+
+	// Initialize MinIO client
+	minioClient, err := storage.NewMinIOClient(storage.MinIOConfig{
+		Endpoint:  cfg.MinIOEndpoint,
+		AccessKey: cfg.MinIOAccessKey,
+		SecretKey: cfg.MinIOSecretKey,
+		Bucket:    cfg.MinIOBucket,
+		UseSSL:    cfg.MinIOUseSSL,
+		Region:    cfg.MinIORegion,
+	})
+	if err != nil {
+		log.Printf("WARNING: MinIO unavailable - %v", err)
+	} else {
+		handlers.MinIOClient = minioClient
+	}
 
 	router := mux.NewRouter()
 
@@ -46,7 +76,7 @@ func main() {
 	handler := c.Handler(router)
 
 	addr := fmt.Sprintf("0.0.0.0:%s", port)
-	log.Printf("Server starting on %s", addr)
+	log.Printf("Server started on http://localhost:%s", port)
 
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatal(err)

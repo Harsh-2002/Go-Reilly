@@ -1,0 +1,14 @@
+services:
+  redis:
+    image: redis:latest
+    container_name: redis-secure
+    command: ["redis-server", "--requirepass", "z6kKkxdBDSFkTTV1bP62TOdoBhI="]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+

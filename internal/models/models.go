@@ -1,6 +1,9 @@
 package models
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // BookInfo represents book metadata from O'Reilly API
 type BookInfo struct {
@@ -58,17 +61,20 @@ type TOCItem struct {
 
 // Download represents a download job
 type Download struct {
-	ID        string  `json:"id"`
-	BookID    string  `json:"book_id"`
-	Status    string  `json:"status"`
-	Progress  int     `json:"progress"`
-	Message   string  `json:"message"`
-	Error     string  `json:"error,omitempty"`
-	FilePath  string  `json:"file_path,omitempty"`
-	BookTitle string  `json:"book_title,omitempty"`
-	FileSize  int64   `json:"file_size,omitempty"`
-	Timestamp int64   `json:"timestamp"`
-	mutex     sync.RWMutex
+	ID         string    `json:"id"`
+	BookID     string    `json:"book_id"`
+	Status     string    `json:"status"`
+	Progress   int       `json:"progress"`
+	Message    string    `json:"message"`
+	Error      string    `json:"error,omitempty"`
+	FilePath   string    `json:"file_path,omitempty"`
+	BookTitle  string    `json:"book_title,omitempty"`
+	FileSize   int64     `json:"file_size,omitempty"`
+	Timestamp  int64     `json:"timestamp"`
+	Cached     bool      `json:"cached"`
+	MinIOURL   string    `json:"minio_url,omitempty"`
+	UploadedAt time.Time `json:"uploaded_at,omitempty"`
+	mutex      sync.RWMutex
 }
 
 // UpdateStatus safely updates download status

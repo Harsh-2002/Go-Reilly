@@ -13,13 +13,19 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"goreilly/internal/cache"
 	"goreilly/internal/models"
 	"goreilly/internal/oreilly"
+	"goreilly/internal/storage"
 )
 
 var (
 	downloads     = make(map[string]*models.Download)
 	downloadsLock sync.RWMutex
+	
+	// Redis and MinIO clients
+	RedisClient *cache.RedisClient
+	MinIOClient *storage.MinIOClient
 )
 
 const (
@@ -34,30 +40,80 @@ func init() {
 
 // DownloadBookHandler handles book download requests
 func DownloadBookHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[Handler] Received download request from %s", r.RemoteAddr)
+	log.Printf("[Handler] Download request received")
 	
 	var req struct {
 		BookID string `json:"book_id"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("[Handler] ERROR: Invalid request body: %v", err)
+		log.Printf("[Handler] ERROR: Failed to decode request: %v", err)
 		http.Error(w, `{"error":"Invalid request"}`, http.StatusBadRequest)
 		return
 	}
 
 	bookID := req.BookID
 	if bookID == "" {
-		log.Printf("[Handler] ERROR: Book ID is empty")
+		log.Printf("[Handler] ERROR: Empty book ID")
 		http.Error(w, `{"error":"Book ID is required"}`, http.StatusBadRequest)
 		return
 	}
+	
+	log.Printf("[Handler] Processing book ID: %s", bookID)
 
-	log.Printf("[Handler] Book ID: %s", bookID)
+	// Check if book is cached in Redis
+	if RedisClient != nil && MinIOClient != nil {
+		cachedInfo, err := RedisClient.GetBookInfo(bookID)
+		if err == nil && cachedInfo != nil {
+			// Verify file exists in MinIO
+			exists, objectName, fileSize, err := MinIOClient.FileExists(bookID)
+			if err == nil && exists {
+				// Generate presigned URL (valid for 1 hour)
+				presignedURL, err := MinIOClient.GetPresignedURL(objectName, time.Hour*1)
+				if err == nil {
+					log.Printf("[Download] Cached: %s", bookID)
+					// Create download ID for tracking
+					downloadID := uuid.New().String()
+					
+					// Store in downloads map
+					download := &models.Download{
+						ID:        downloadID,
+						BookID:    bookID,
+						Status:    "completed",
+						Progress:  100,
+						Message:   "Book retrieved from cache",
+						BookTitle: cachedInfo.BookTitle,
+						FileSize:  fileSize,
+						FilePath:  objectName,
+						Timestamp: time.Now().Unix(),
+						Cached:    true,
+						MinIOURL:  presignedURL,
+					}
+					
+					downloadsLock.Lock()
+					downloads[downloadID] = download
+					downloadsLock.Unlock()
+					
+					// Return cached response
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"download_id": downloadID,
+						"cached":      true,
+						"book_title":  cachedInfo.BookTitle,
+						"file_size":   fileSize,
+						"minio_url":   presignedURL,
+						"uploaded_at": cachedInfo.UploadedAt,
+					})
+					return
+				}
+			}
+		}
+	}
 
-	// Create download ID
+	// Book not in cache, proceed with normal download
 	downloadID := uuid.New().String()
-	log.Printf("[Handler] Created download ID: %s", downloadID)
+	log.Printf("[Download] Starting: %s", bookID)
 
 	// Initialize download
 	download := &models.Download{
@@ -74,7 +130,6 @@ func DownloadBookHandler(w http.ResponseWriter, r *http.Request) {
 	downloadsLock.Unlock()
 
 	// Start download in goroutine
-	log.Printf("[Handler] Starting async download goroutine for %s", downloadID)
 	go downloadBookAsync(downloadID, bookID)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -83,7 +138,6 @@ func DownloadBookHandler(w http.ResponseWriter, r *http.Request) {
 		"download_id": downloadID,
 		"cached":      "false",
 	})
-	log.Printf("[Handler] Response sent, download started for %s", downloadID)
 }
 
 // downloadBookAsync downloads book asynchronously
@@ -141,6 +195,43 @@ func downloadBookAsync(downloadID, bookID string) {
 		fileSize = fileInfo.Size()
 	}
 
+	// Upload to MinIO and cache in Redis
+	var minioURL string
+	if MinIOClient != nil {
+		download.UpdateStatus("downloading", "Uploading to storage...", 90)
+		log.Printf("[Upload] Starting upload for book %s", bookID)
+		
+		objectName, uploadedSize, err := MinIOClient.UploadFile(bookID, outputFile)
+		if err != nil {
+			log.Printf("[Upload] ERROR: Failed to upload to MinIO: %v", err)
+		} else {
+			log.Printf("[Upload] Success: %s", objectName)
+			
+			// Generate presigned URL (valid for 1 hour)
+			presignedURL, err := MinIOClient.GetPresignedURL(objectName, time.Hour*1)
+			if err != nil {
+				log.Printf("[Upload] ERROR: Failed to generate URL: %v", err)
+			} else {
+				minioURL = presignedURL
+				
+				// Cache in Redis if available
+				if RedisClient != nil {
+					cacheInfo := &cache.BookCacheInfo{
+						BookID:     bookID,
+						BookTitle:  bookTitle,
+						MinIOPath:  objectName,
+						FileSize:   uploadedSize,
+						UploadedAt: time.Now(),
+					}
+					
+					if err := RedisClient.SetBookInfo(cacheInfo); err != nil {
+						log.Printf("[Cache] ERROR: Failed to cache: %v", err)
+					}
+				}
+			}
+		}
+	}
+
 	// Update status to completed
 	downloadsLock.Lock()
 	download.Status = "completed"
@@ -149,6 +240,7 @@ func downloadBookAsync(downloadID, bookID string) {
 	download.FilePath = outputFile
 	download.BookTitle = bookTitle
 	download.FileSize = fileSize
+	download.MinIOURL = minioURL
 	download.Timestamp = time.Now().Unix()
 	downloadsLock.Unlock()
 }
@@ -245,10 +337,19 @@ func GetStatusHandler(w http.ResponseWriter, r *http.Request) {
 		"book_id":    download.BookID,
 		"book_title": download.BookTitle,
 		"file_size":  download.FileSize,
+		"cached":     download.Cached,
 	}
 
 	if download.Error != "" {
 		response["error"] = download.Error
+	}
+	
+	if download.MinIOURL != "" {
+		response["minio_url"] = download.MinIOURL
+	}
+	
+	if !download.UploadedAt.IsZero() {
+		response["uploaded_at"] = download.UploadedAt
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -274,6 +375,13 @@ func GetFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If we have a MinIO URL, redirect to it
+	if download.MinIOURL != "" {
+		http.Redirect(w, r, download.MinIOURL, http.StatusTemporaryRedirect)
+		return
+	}
+
+	// Fallback to local file
 	if download.FilePath == "" || !fileExists(download.FilePath) {
 		http.Error(w, `{"error":"File not found"}`, http.StatusNotFound)
 		return
@@ -327,19 +435,15 @@ func GetBookInfoHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bookID := vars["id"]
 
-	log.Printf("[Handler] Book info request for ID: %s", bookID)
-
 	// Create a temporary client just to fetch book info
 	client, err := oreilly.NewClient(bookID, cookiesPath, nil)
 	if err != nil {
-		log.Printf("[Handler] ERROR: Failed to create client: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to connect: %s"}`, err.Error()), http.StatusInternalServerError)
 		return
 	}
 
 	// Fetch book info
 	if err := client.GetBookInfo(); err != nil {
-		log.Printf("[Handler] ERROR: Failed to fetch book info: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch book info: %s"}`, err.Error()), http.StatusInternalServerError)
 		return
 	}
@@ -369,7 +473,6 @@ func GetBookInfoHandler(w http.ResponseWriter, r *http.Request) {
 		"isbn":        bookInfo.ISBN,
 	}
 
-	log.Printf("[Handler] Successfully fetched book info: %s", bookInfo.Title)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
