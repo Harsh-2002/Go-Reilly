@@ -49,44 +49,14 @@ function formatISBN(isbn) {
 }
 
 // ============================================================================
-// LOCAL STORAGE MANAGEMENT
+// THEME MANAGEMENT
 // ============================================================================
 
-// Save active downloads to localStorage
-function saveActiveDownloads() {
-    localStorage.setItem('activeDownloads', JSON.stringify(Object.keys(activeDownloads)));
-}
-
-// Load active downloads from localStorage
-function loadActiveDownloads() {
-    try {
-        const savedDownloads = JSON.parse(localStorage.getItem('activeDownloads')) || [];
-        savedDownloads.forEach(id => {
-            if (id) {
-                activeDownloads[id] = { status: 'unknown' };
-                pollStatus(id);
-            }
-        });
-    } catch (e) {
-        console.error('Error loading active downloads', e);
-    }
-}
-
-// Theme management
-function loadTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'dark';
-    document.body.setAttribute('data-theme', savedTheme);
-}
-
-function saveTheme(theme) {
-    localStorage.setItem('theme', theme);
-}
-
+// Theme management - using data attribute only (no persistence)
 function toggleTheme() {
     const currentTheme = document.body.getAttribute('data-theme');
     const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
     document.body.setAttribute('data-theme', newTheme);
-    saveTheme(newTheme);
 }
 
 // ============================================================================
@@ -153,6 +123,7 @@ async function startDownload(bookId) {
     try {
         showProcessing('Preparing your book...');
         hideError();
+        hideDownloadReady();
         
         const response = await fetch(`${API_BASE}/api/download`, {
             method: 'POST',
@@ -170,6 +141,34 @@ async function startDownload(bookId) {
         const data = await response.json();
         const downloadId = data.download_id;
         
+        // Check if this is a cached book (immediate response)
+        if (data.cached === true && data.epub_url && data.epub_size) {
+            // Cached book - show download button immediately
+            activeDownloads[downloadId] = {
+                status: 'completed',
+                book_id: bookId,
+                progress: 100,
+                cached: true,
+                epub_url: data.epub_url,
+                epub_size: data.epub_size,
+                file_size: data.file_size || data.epub_size,
+                book_title: data.book_title
+            };
+            
+            
+            // Show download button immediately
+            showDownloadReady(data.epub_size, data.epub_url);
+            setupDownloadButtons({
+                epub_url: data.epub_url,
+                minio_url: data.minio_url || data.epub_url,
+                epub_size: data.epub_size,
+                file_size: data.file_size || data.epub_size
+            }, downloadId);
+            
+            return; // Don't poll for cached books
+        }
+        
+        // Not cached - normal download flow
         activeDownloads[downloadId] = {
             status: 'starting',
             book_id: bookId,
@@ -177,12 +176,12 @@ async function startDownload(bookId) {
         };
         
         lastFailedBookId = bookId;
-        saveActiveDownloads();
         pollStatus(downloadId);
         
     } catch (error) {
         showError('Unable to prepare your book. Please try again.', true);
         hideProcessing();
+        hideDownloadReady();
     }
 }
 
@@ -220,7 +219,6 @@ async function pollStatus(downloadId) {
                 delete pollIntervals[downloadId];
             }
             delete activeDownloads[downloadId];
-            saveActiveDownloads();
             
             // Clear the input after showing error so user can try another book
             setTimeout(() => {
@@ -249,7 +247,6 @@ async function pollStatus(downloadId) {
                 delete pollIntervals[downloadId];
             }
             delete activeDownloads[downloadId];
-            saveActiveDownloads();
         } else {
             // Retry with exponential backoff
             const retryDelay = Math.min(2000 * activeDownloads[downloadId].errorCount, 10000);
@@ -337,7 +334,6 @@ async function handleCompletion(data, downloadId) {
     } catch (error) {
         console.error(`Error getting file info for ${downloadId}:`, error);
         delete activeDownloads[downloadId];
-        saveActiveDownloads();
         
         if (!visibleDownloadId || visibleDownloadId === downloadId) {
             showError('Unable to prepare your book for download. Please try again.', true);
@@ -606,8 +602,21 @@ function resetUI() {
 
 // Initialize on DOM load
 document.addEventListener('DOMContentLoaded', function() {
-    loadTheme();
-    loadActiveDownloads();
+    // Theme always starts as dark (no persistence)
+    document.body.setAttribute('data-theme', 'dark');
+    
+    // Clear any stale state on fresh page load
+    hideDownloadReady();
+    hideProcessing();
+    hideError();
+    
+    // Clear input field on page load (fresh start)
+    if (bookIdInput) {
+        bookIdInput.value = '';
+    }
+    
+    // Reset active downloads
+    activeDownloads = {};
 });
 
 // Debounce timer for auto-trigger
