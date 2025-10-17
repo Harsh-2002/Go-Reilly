@@ -14,7 +14,7 @@
     <div class="container">
         <header>
             <div class="logo-container">
-                <div class="logo" id="logo-clickable" role="button" tabindex="0" aria-label="Toggle theme between dark and light mode" title="Click to toggle theme">
+                <div class="logo" id="logo-clickable" role="button" tabindex="0" aria-label="Toggle theme between dark and light mode. Server status indicated by logo animation" title="Click to toggle theme. Logo animation indicates server health">
                     <pre id="logo-ascii" aria-hidden="true">
   ██████╗  ██████╗ ██████╗ ███████╗██╗██╗     ██╗  ██╗   ██╗
  ██╔════╝ ██╔═══██╗██╔══██╗██╔════╝██║██║     ██║  ╚██╗ ██╔╝
@@ -23,10 +23,6 @@
  ╚██████╔╝╚██████╔╝██║  ██║███████╗██║███████╗███████╗██║   
   ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝╚══════╝╚══════╝╚═╝   
             </pre>
-                </div>
-                <!-- Server Status next to Logo -->
-                <div id="logo-server-status" class="logo-server-status" role="status" aria-live="polite" title="Server status">
-                    <div class="logo-status-dot" id="input-status-dot" aria-label="Server is ready"></div>
                 </div>
             </div>
         </header>
@@ -43,7 +39,7 @@
                         pattern="[0-9-]*"
                         inputmode="numeric"
                         aria-label="Book ISBN Number"
-                        aria-describedby="isbn-validation-indicator url-expiration-warning"
+                        aria-describedby="isbn-validation-indicator"
                         aria-required="true"
                     />
                     <!-- ISBN Validation Indicator -->
@@ -64,16 +60,10 @@
                 
                 <!-- Download Button in Input Bar -->
                 <button id="input-download-btn" class="input-download-btn hidden" aria-label="Download EPUB file">
-                    <span class="download-icon" aria-hidden="true">⬇</span>
+                    <span class="download-icon" aria-hidden="true">↓</span>
                     <span class="download-text">Download EPUB</span>
                     <span id="input-epub-size" class="download-size"></span>
                 </button>
-            </div>
-            
-            <!-- URL Expiration Warning -->
-            <div id="url-expiration-warning" class="url-expiration-warning hidden" role="alert" aria-live="polite">
-                <span class="warning-icon" aria-hidden="true">⏱</span>
-                <span class="warning-text" id="warning-text">Download link expires in <strong id="expiry-time">1 hour</strong></span>
             </div>
         </div>
         

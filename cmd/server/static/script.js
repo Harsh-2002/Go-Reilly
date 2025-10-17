@@ -165,9 +165,9 @@ function toggleTheme() {
 // ============================================================================
 
 async function updateServerStatus() {
-    const statusDot = document.getElementById('input-status-dot');
+    const logoAscii = document.getElementById('logo-ascii');
     
-    if (!statusDot) return;
+    if (!logoAscii) return;
     
     try {
         const response = await fetch(`${API_BASE}/api/stats`);
@@ -188,28 +188,28 @@ async function updateServerStatus() {
         const downloadSlotsFree = stats.download_slots_free || 0;
         
         // Remove all status classes
-        statusDot.classList.remove('healthy', 'busy', 'error');
+        logoAscii.classList.remove('healthy', 'busy', 'error');
         
-        // Update aria-label for accessibility
+        // Update logo animation and aria-label for accessibility
         if (activeDownloads === 0) {
-            // Green: No active downloads, server is idle
-            statusDot.classList.add('healthy');
-            statusDot.setAttribute('aria-label', 'Server is ready');
+            // Animating colors: No active downloads, server is idle
+            logoAscii.classList.add('healthy');
+            logoAscii.setAttribute('title', 'Server is ready - logo colors animating');
         } else if (downloadSlotsFree > 0) {
-            // Yellow: Some downloads active but slots available
-            statusDot.classList.add('busy');
-            statusDot.setAttribute('aria-label', `Server has ${activeDownloads} active download${activeDownloads > 1 ? 's' : ''}`);
+            // Slower animation: Some downloads active but slots available
+            logoAscii.classList.add('busy');
+            logoAscii.setAttribute('title', `Server has ${activeDownloads} active download${activeDownloads > 1 ? 's' : ''} - logo animation slowed`);
         } else {
-            // Orange/Yellow: All slots occupied
-            statusDot.classList.add('busy');
-            statusDot.setAttribute('aria-label', 'Server is busy with maximum downloads');
+            // Slower animation: All slots occupied
+            logoAscii.classList.add('busy');
+            logoAscii.setAttribute('title', 'Server is busy with maximum downloads - logo animation slowed');
         }
         
     } catch (error) {
         console.error('[ServerStatus] Error fetching stats:', error);
-        statusDot.classList.remove('healthy', 'busy');
-        statusDot.classList.add('error');
-        statusDot.setAttribute('aria-label', 'Server is offline');
+        logoAscii.classList.remove('healthy', 'busy');
+        logoAscii.classList.add('error');
+        logoAscii.setAttribute('title', 'Server is offline - logo colors static');
     }
 }
 
@@ -219,11 +219,11 @@ function startServerStatusMonitoring() {
     // Update immediately
     updateServerStatus();
     
-    // Then update every 30 seconds
+    // Then update every 5 seconds for faster error detection
     if (serverStatusInterval) {
         clearInterval(serverStatusInterval);
     }
-    serverStatusInterval = setInterval(updateServerStatus, 30000);
+    serverStatusInterval = setInterval(updateServerStatus, 5000);
 }
 
 // ============================================================================
@@ -269,9 +269,6 @@ function showDownloadReady(epubSize, epubUrl) {
             sizeSpan.textContent = `(${sizeInMB} MB)`;
         }
         btn.setAttribute('data-url', epubUrl || '');
-        
-        // Show expiration warning
-        showExpirationWarning();
     } else {
         console.error('[Download] Cannot show button - btn:', !!btn, 'epubSize:', epubSize);
     }
@@ -281,35 +278,6 @@ function hideDownloadReady() {
     const btn = document.getElementById('input-download-btn');
     if (btn) {
         btn.classList.add('hidden');
-    }
-    hideExpirationWarning();
-}
-
-// Show expiration warning
-function showExpirationWarning() {
-    const warning = document.getElementById('url-expiration-warning');
-    const expiryTime = document.getElementById('expiry-time');
-    
-    if (warning && expiryTime) {
-        if (presignedURLExpiryHours === 1) {
-            expiryTime.textContent = '1 hour';
-        } else if (presignedURLExpiryHours === 24) {
-            expiryTime.textContent = '24 hours';
-        } else if (presignedURLExpiryHours < 24) {
-            expiryTime.textContent = `${presignedURLExpiryHours} hours`;
-        } else {
-            const days = Math.floor(presignedURLExpiryHours / 24);
-            expiryTime.textContent = `${days} ${days === 1 ? 'day' : 'days'}`;
-        }
-        warning.classList.remove('hidden');
-    }
-}
-
-// Hide expiration warning
-function hideExpirationWarning() {
-    const warning = document.getElementById('url-expiration-warning');
-    if (warning) {
-        warning.classList.add('hidden');
     }
 }
 
@@ -441,15 +409,13 @@ function connectSSE(downloadId) {
                 
                 // Make error messages more user-friendly
                 if (errorMsg.includes('book not found') || errorMsg.includes('Book not found')) {
-                    errorMsg = '📚 Book not found. Please verify the ISBN number.';
+                    errorMsg = 'Book not found. Please verify the ISBN number.';
                 } else if (errorMsg.includes('authentication') || errorMsg.includes('cookies')) {
-                    errorMsg = '🔐 Authentication failed. Please refresh your cookies.';
+                    errorMsg = 'Authentication failed. Please refresh your cookies.';
                 } else if (errorMsg.includes('expired')) {
-                    errorMsg = '⏰ Your O\'Reilly subscription has expired.';
+                    errorMsg = 'Your O\'Reilly subscription has expired.';
                 } else if (errorMsg.includes('Failed to upload')) {
-                    errorMsg = '☁️ Storage error. Please try again.';
-                } else {
-                    errorMsg = `⚠️ ${errorMsg}`;
+                    errorMsg = 'Storage error. Please try again.';
                 }
                 
                 showError(errorMsg, true);
@@ -509,11 +475,9 @@ async function pollStatus(downloadId) {
             let errorMsg = data.error || 'Unable to download this book. Please try again.';
             
             if (errorMsg.includes('book not found') || errorMsg.includes('Book not found')) {
-                errorMsg = '📚 Book not found. Please verify the ISBN number.';
+                errorMsg = 'Book not found. Please verify the ISBN number.';
             } else if (errorMsg.includes('authentication') || errorMsg.includes('cookies')) {
-                errorMsg = '🔐 Authentication failed. Please refresh your cookies.';
-            } else {
-                errorMsg = `⚠️ ${errorMsg}`;
+                errorMsg = 'Authentication failed. Please refresh your cookies.';
             }
             
             showError(errorMsg, true);
@@ -853,13 +817,13 @@ async function fetchBookPreview(bookId) {
             bookValidationCache[bookId] = { valid: false, timestamp: Date.now() };
             
             if (response.status === 404) {
-                showError('📚 Book not found. Please check the ISBN number and try again.', false);
+                showError('Book not found. Please check the ISBN number and try again.', false);
             } else if (response.status === 401 || response.status === 403) {
-                showError('🔐 Authentication error. Please refresh your O\'Reilly cookies.', false);
+                showError('Authentication error. Please refresh your O\'Reilly cookies.', false);
             } else if (response.status >= 500) {
-                showError('🔧 Server error. Please try again in a moment.', false);
+                showError('Server error. Please try again in a moment.', false);
             } else {
-                showError('⚠️ Unable to retrieve book information. Please try again.', false);
+                showError('Unable to retrieve book information. Please try again.', false);
             }
             previewDiv.classList.add('hidden');
             return;
@@ -1015,37 +979,32 @@ bookIdInput.addEventListener('input', (e) => {
         return;
     }
     
-    // Show validation indicator as user types (when we have some digits)
-    if (cleanBookId.length > 0 && cleanBookId.length <= 13) {
-        // Only show indicator when we have enough digits to validate
-        if (cleanBookId.length >= 10) {
-            const isValid = isValidISBN13(cleanBookId);
-            showValidationIndicator(isValid);
+    // Show indicators based on input length and validation state
+    if (cleanBookId.length > 0 && cleanBookId.length < 10) {
+        // Less than 10 digits - show loading if typing
+        if (cleanBookId.length >= 3) {
+            showSearchLoading();
+            hideValidationIndicator();
         } else {
+            hideSearchLoading();
             hideValidationIndicator();
         }
-    }
-    
-    // Show loading indicator as soon as user starts typing (at least 3 characters)
-    if (cleanBookId.length >= 3) {
+    } else if (cleanBookId.length >= 10 && cleanBookId.length < 13) {
+        // 10-12 digits - show loading while user finishes typing
         showSearchLoading();
-    } else {
+        hideValidationIndicator();
+    } else if (cleanBookId.length === 13) {
+        // Exactly 13 digits - hide loading, show validation
         hideSearchLoading();
-    }
-    
-    // Check if we have exactly 13 digits
-    if (cleanBookId.length === 13) {
+        const isValid = isValidISBN13(cleanBookId);
+        showValidationIndicator(isValid);
+        
         // Validate ISBN-13 format
-        if (!isValidISBN13(cleanBookId)) {
-            hideSearchLoading();
+        if (!isValid) {
             showError('Please enter a valid 13-digit ISBN', false);
             previewDiv.classList.add('hidden');
-            showValidationIndicator(false);
             return;
         }
-        
-        // Valid ISBN - show checkmark
-        showValidationIndicator(true);
         
         // Valid ISBN - fetch preview
         debounce(() => fetchBookPreview(cleanBookId), 800);
@@ -1071,14 +1030,9 @@ bookIdInput.addEventListener('input', (e) => {
     } else if (cleanBookId.length > 13) {
         // Too many digits
         hideSearchLoading();
+        hideValidationIndicator();
         showError('ISBN should be exactly 13 digits', false);
         previewDiv.classList.add('hidden');
-        showValidationIndicator(false);
-    } else if (cleanBookId.length > 0 && cleanBookId.length < 13) {
-        // Not enough digits - show subtle hint
-        hideSearchLoading();
-        previewDiv.classList.add('hidden');
-        // Don't show error for incomplete input, just wait for user to finish
     }
 });
 
