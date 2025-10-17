@@ -61,6 +61,7 @@ func main() {
 	router.HandleFunc("/api/download", handlers.DownloadBookHandler).Methods("POST")
 	router.HandleFunc("/api/book/{id}/info", handlers.GetBookInfoHandler).Methods("GET")
 	router.HandleFunc("/api/status/{id}", handlers.GetStatusHandler).Methods("GET")
+	router.HandleFunc("/api/stream/{id}", handlers.StreamDownloadStatusHandler).Methods("GET")
 	router.HandleFunc("/api/file/{id}", handlers.GetFileHandler).Methods("GET")
 	router.HandleFunc("/api/file/{id}/info", handlers.GetFileInfoHandler).Methods("GET")
 	router.HandleFunc("/api/stats", handlers.GetStatsHandler).Methods("GET")

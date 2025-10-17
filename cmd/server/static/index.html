@@ -5,14 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, height=device-height, viewport-fit=cover">
     <meta name="theme-color" content="#0D0D0D">
     <meta name="color-scheme" content="dark">
-    <title>Go'Reilly</title>
+    <meta name="description" content="Download O'Reilly books in EPUB format">
+    <title>Go'Reilly - O'Reilly Book Downloader</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📚</text></svg>">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body data-theme="dark">
     <div class="container">
-        <div class="logo" id="logo-clickable" style="cursor: pointer;" title="Click to toggle theme">
-            <pre id="logo-ascii">
+        <header>
+            <div class="logo-container">
+                <div class="logo" id="logo-clickable" role="button" tabindex="0" aria-label="Toggle theme between dark and light mode" title="Click to toggle theme">
+                    <pre id="logo-ascii" aria-hidden="true">
   ██████╗  ██████╗ ██████╗ ███████╗██╗██╗     ██╗  ██╗   ██╗
  ██╔════╝ ██╔═══██╗██╔══██╗██╔════╝██║██║     ██║  ╚██╗ ██╔╝
  ██║  ███╗██║   ██║██████╔╝█████╗  ██║██║     ██║   ╚████╔╝ 
@@ -20,40 +23,67 @@
  ╚██████╔╝╚██████╔╝██║  ██║███████╗██║███████╗███████╗██║   
   ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝╚══════╝╚══════╝╚═╝   
             </pre>
-        </div>
-        
-        <div class="search-box">
-            <div class="input-group">
-                <input 
-                    type="text" 
-                    id="book-id" 
-                    placeholder="Enter 13-digit book number (e.g., 9781491958698)" 
-                    autocomplete="off"
-                    maxlength="13"
-                    pattern="[0-9]*"
-                    inputmode="numeric"
-                />
-                <div id="search-loading-indicator" class="search-loading-indicator hidden">
-                    <span class="ellipsis-loading">...</span>
                 </div>
+                <!-- Server Status next to Logo -->
+                <div id="logo-server-status" class="logo-server-status" role="status" aria-live="polite" title="Server status">
+                    <div class="logo-status-dot" id="input-status-dot" aria-label="Server is ready"></div>
+                </div>
+            </div>
+        </header>
+        
+        <main role="main">
+            <div class="search-box">
+                <div class="input-group" role="search">
+                    <input 
+                        type="text" 
+                        id="book-id" 
+                        placeholder="Enter ISBN (e.g., 978-1-491-95869-8)" 
+                        autocomplete="off"
+                        maxlength="17"
+                        pattern="[0-9-]*"
+                        inputmode="numeric"
+                        aria-label="Book ISBN Number"
+                        aria-describedby="isbn-validation-indicator url-expiration-warning"
+                        aria-required="true"
+                    />
+                    <!-- ISBN Validation Indicator -->
+                    <div id="isbn-validation-indicator" class="isbn-validation-indicator hidden" role="status" aria-live="polite" aria-atomic="true">
+                        <span class="validation-icon" aria-hidden="true"></span>
+                    </div>
+                    
+                    <!-- Loading Indicator -->
+                    <div id="search-loading-indicator" class="search-loading-indicator hidden" role="status" aria-label="Loading book information">
+                        <span class="ellipsis-loading" aria-hidden="true">...</span>
+                    </div>
                 
                 <!-- Processing Status in Input Bar -->
-                <div id="input-processing-status" class="input-processing-status hidden">
-                    <div class="input-processing-spinner"></div>
+                <div id="input-processing-status" class="input-processing-status hidden" role="status" aria-live="polite">
+                    <div class="input-processing-spinner" aria-hidden="true"></div>
                     <span class="input-processing-text" id="input-processing-text">Processing...</span>
                 </div>
                 
                 <!-- Download Button in Input Bar -->
-                <button id="input-download-btn" class="input-download-btn hidden">
-                    <span class="download-icon">⬇</span>
+                <button id="input-download-btn" class="input-download-btn hidden" aria-label="Download EPUB file">
+                    <span class="download-icon" aria-hidden="true">⬇</span>
                     <span class="download-text">Download EPUB</span>
                     <span id="input-epub-size" class="download-size"></span>
                 </button>
             </div>
+            
+            <!-- URL Expiration Warning -->
+            <div id="url-expiration-warning" class="url-expiration-warning hidden" role="alert" aria-live="polite">
+                <span class="warning-icon" aria-hidden="true">⏱</span>
+                <span class="warning-text" id="warning-text">Download link expires in <strong id="expiry-time">1 hour</strong></span>
+            </div>
+        </div>
+        
+        <!-- Quick Title Preview -->
+        <div id="quick-title-preview" class="quick-title-preview hidden" role="status" aria-live="polite" aria-atomic="true">
+            <span class="quick-title-text" id="quick-title-text"></span>
         </div>
         
         <!-- Book Preview Section (Info Only) -->
-        <div id="book-preview" class="book-preview hidden">
+        <div id="book-preview" class="book-preview hidden" role="region" aria-label="Book details">
             <div class="preview-content">
                 <div class="preview-left">
                     <div class="preview-image-container">
@@ -63,22 +93,23 @@
                 
                 <div class="preview-info">
                     <h2 class="preview-title" id="preview-title">Loading...</h2>
-                    <div class="preview-authors" id="preview-authors">Authors</div>
-                    <div class="preview-meta">
+                    <div class="preview-authors" id="preview-authors" aria-label="Authors">Authors</div>
+                    <div class="preview-meta" aria-label="Publication details">
                         <span class="preview-meta-item" id="preview-publisher"></span>
-                        <span class="preview-meta-separator">•</span>
+                        <span class="preview-meta-separator" aria-hidden="true">•</span>
                         <span class="preview-meta-item" id="preview-year"></span>
                     </div>
-                    <div class="preview-description" id="preview-description"></div>
+                    <div class="preview-description" id="preview-description" aria-label="Book description"></div>
                 </div>
             </div>
         </div>
         
-        <div id="error" class="error hidden">
-            <div class="error-icon">⚠</div>
+        <div id="error" class="error hidden" role="alert" aria-live="assertive">
+            <div class="error-icon" aria-hidden="true">⚠</div>
             <div id="error-message"></div>
-            <button id="retry-btn" class="retry-btn hidden">RETRY</button>
+            <button id="retry-btn" class="retry-btn hidden" aria-label="Retry download">RETRY</button>
         </div>
+    </main>
     </div>
     
     <script src="script.js"></script>

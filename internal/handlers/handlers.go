@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -369,6 +370,9 @@ func downloadBookAsync(downloadID, bookID string) {
 	download.Timestamp = time.Now().Unix()
 	downloadsLock.Unlock()
 	
+	// Broadcast completion to SSE clients
+	download.UpdateStatus("completed", "Download complete!", 100)
+	
 	// Cleanup from memory after 5 minutes (enough time for client to retrieve status)
 	go func() {
 		time.Sleep(5 * time.Minute)
@@ -588,6 +592,10 @@ func GetBookInfoHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	bookID := vars["id"]
 
+	// Note: We don't check cache here because cache only has minimal info (title, epub path)
+	// but preview needs full details (authors, description, cover, etc.)
+	log.Printf("[BookInfo] Fetching full book info from O'Reilly: %s", bookID)
+	
 	// Create a temporary client just to fetch book info
 	client, err := oreilly.NewClient(bookID, cookiesPath, nil)
 	if err != nil {
@@ -595,13 +603,21 @@ func GetBookInfoHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch book info
+	// Fetch book info from O'Reilly
 	if err := client.GetBookInfo(); err != nil {
+		// Check if it's a "book not found" error (status 404 from API)
+		if strings.Contains(err.Error(), "book not found") || strings.Contains(err.Error(), "status: 404") {
+			log.Printf("[BookInfo] Book not found on O'Reilly: %s", bookID)
+			http.Error(w, `{"error":"Book not found"}`, http.StatusNotFound)
+			return
+		}
+		log.Printf("[BookInfo] Error fetching book info: %v", err)
 		http.Error(w, fmt.Sprintf(`{"error":"Failed to fetch book info: %s"}`, err.Error()), http.StatusInternalServerError)
 		return
 	}
 
 	bookInfo := client.GetBookInfoData()
+	log.Printf("[BookInfo] Successfully fetched: %s", bookInfo.Title)
 	
 	// Build authors string
 	authors := []string{}
@@ -659,21 +675,101 @@ func GetStatsHandler(w http.ResponseWriter, r *http.Request) {
 	conversionSlotsUsed := len(conversionSemaphore)
 	
 	stats := map[string]interface{}{
-		"total_downloads":       totalDownloads,
-		"active_downloads":      activeCount,
-		"completed_downloads":   completedCount,
-		"failed_downloads":      errorCount,
-		"queued_downloads":      queuedCount,
-		"download_slots_total":  downloadSlots,
-		"download_slots_used":   downloadSlotsUsed,
-		"download_slots_free":   downloadSlots - downloadSlotsUsed,
+		"total_downloads":        totalDownloads,
+		"active_downloads":       activeCount,
+		"completed_downloads":    completedCount,
+		"failed_downloads":       errorCount,
+		"queued_downloads":       queuedCount,
+		"download_slots_total":   downloadSlots,
+		"download_slots_used":    downloadSlotsUsed,
+		"download_slots_free":    downloadSlots - downloadSlotsUsed,
 		"conversion_slots_total": conversionSlots,
 		"conversion_slots_used":  conversionSlotsUsed,
 		"conversion_slots_free":  conversionSlots - conversionSlotsUsed,
-		"redis_enabled":         RedisClient != nil,
-		"minio_enabled":         MinIOClient != nil,
+		"redis_enabled":          RedisClient != nil,
+		"minio_enabled":          MinIOClient != nil,
+		"presigned_url_expiry_hours": int(PresignedURLExpiry.Hours()),
 	}
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
 }
+
+// StreamDownloadStatusHandler handles SSE connections for real-time download progress
+func StreamDownloadStatusHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	downloadID := vars["id"]
+	
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	
+	// Get flusher
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	
+	// Get download
+	downloadsLock.RLock()
+	download, exists := downloads[downloadID]
+	downloadsLock.RUnlock()
+	
+	if !exists {
+		// Send error event
+		fmt.Fprintf(w, "data: {\"error\":\"Download ID not found\"}\n\n")
+		flusher.Flush()
+		return
+	}
+	
+	// Create client channel
+	client := make(chan models.DownloadUpdate, 10)
+	download.AddSSEClient(client)
+	defer download.RemoveSSEClient(client)
+	
+	// Send initial state immediately
+	status, message, progress := download.GetStatus()
+	initialUpdate := models.DownloadUpdate{
+		Status:   status,
+		Progress: progress,
+		Message:  message,
+	}
+	
+	if data, err := json.Marshal(initialUpdate); err == nil {
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+	
+	// Listen for updates or client disconnect
+	ctx := r.Context()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			// Client disconnected
+			log.Printf("[SSE] Client disconnected from download %s", downloadID)
+			return
+			
+		case update := <-client:
+			// Send update to client
+			data, err := json.Marshal(update)
+			if err != nil {
+				log.Printf("[SSE] Error marshaling update: %v", err)
+				continue
+			}
+			
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			
+			// If completed or error, close after sending
+			if update.Status == "completed" || update.Status == "error" {
+				log.Printf("[SSE] Download %s finished with status: %s", downloadID, update.Status)
+				return
+			}
+		}
+	}
+}
+

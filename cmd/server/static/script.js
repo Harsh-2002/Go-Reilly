@@ -5,8 +5,14 @@ const API_BASE = window.location.origin;
 
 // Download state management
 let activeDownloads = {};
-let pollIntervals = {};
+let pollIntervals = {}; // Keep for backward compatibility fallback
+let sseConnections = {}; // Store SSE connections
 let lastFailedBookId = null;
+let serverStatusInterval = null;
+let presignedURLExpiryHours = 1; // Default, will be updated from server
+
+// Book validation state
+let bookValidationCache = {}; // Store validation results: { bookId: { valid: true/false, timestamp: Date } }
 
 // DOM Elements
 const bookIdInput = document.getElementById('book-id');
@@ -14,6 +20,7 @@ const errorDiv = document.getElementById('error');
 const errorMessage = document.getElementById('error-message');
 const retryBtn = document.getElementById('retry-btn');
 const logoClickable = document.getElementById('logo-clickable');
+const isbnValidationIndicator = document.getElementById('isbn-validation-indicator');
 
 // New input bar elements
 const inputProcessingStatus = document.getElementById('input-processing-status');
@@ -38,6 +45,31 @@ function isValidISBN13(isbn) {
     return true;
 }
 
+// Show validation indicator
+function showValidationIndicator(isValid) {
+    if (!isbnValidationIndicator) return;
+    
+    // Hide loading indicator when showing validation
+    hideSearchLoading();
+    
+    isbnValidationIndicator.classList.remove('hidden', 'valid', 'invalid');
+    
+    if (isValid) {
+        isbnValidationIndicator.classList.add('valid');
+        isbnValidationIndicator.setAttribute('aria-label', 'Valid ISBN');
+    } else {
+        isbnValidationIndicator.classList.add('invalid');
+        isbnValidationIndicator.setAttribute('aria-label', 'Invalid ISBN');
+    }
+}
+
+// Hide validation indicator
+function hideValidationIndicator() {
+    if (!isbnValidationIndicator) return;
+    isbnValidationIndicator.classList.add('hidden');
+    isbnValidationIndicator.classList.remove('valid', 'invalid');
+}
+
 // Format ISBN for display
 function formatISBN(isbn) {
     const cleanISBN = isbn.replace(/[-\s]/g, '');
@@ -46,6 +78,75 @@ function formatISBN(isbn) {
         return `${cleanISBN.slice(0, 3)}-${cleanISBN.slice(3, 4)}-${cleanISBN.slice(4, 7)}-${cleanISBN.slice(7, 12)}-${cleanISBN.slice(12)}`;
     }
     return isbn;
+}
+
+// Format ISBN as user types with auto-hyphen insertion
+function formatISBNAsUserTypes(value, previousValue = '') {
+    // Remove all non-digits
+    const cleanValue = value.replace(/[^\d]/g, '');
+    
+    // Don't format if empty
+    if (cleanValue.length === 0) {
+        return '';
+    }
+    
+    // Apply formatting based on length
+    let formatted = cleanValue;
+    
+    if (cleanValue.length > 3) {
+        formatted = cleanValue.slice(0, 3) + '-' + cleanValue.slice(3);
+    }
+    if (cleanValue.length > 4) {
+        formatted = cleanValue.slice(0, 3) + '-' + cleanValue.slice(3, 4) + '-' + cleanValue.slice(4);
+    }
+    if (cleanValue.length > 7) {
+        formatted = cleanValue.slice(0, 3) + '-' + cleanValue.slice(3, 4) + '-' + cleanValue.slice(4, 7) + '-' + cleanValue.slice(7);
+    }
+    if (cleanValue.length > 12) {
+        formatted = cleanValue.slice(0, 3) + '-' + cleanValue.slice(3, 4) + '-' + cleanValue.slice(4, 7) + '-' + cleanValue.slice(7, 12) + '-' + cleanValue.slice(12, 13);
+    }
+    
+    return formatted;
+}
+
+// Apply formatting to input field while maintaining cursor position
+function applyISBNFormatting(input) {
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const previousValue = input.value;
+    const formattedValue = formatISBNAsUserTypes(input.value, previousValue);
+    
+    // Only update if value changed
+    if (formattedValue !== input.value) {
+        input.value = formattedValue;
+        
+        // Calculate new cursor position
+        // Count hyphens before cursor in old and new values
+        const oldBeforeCursor = previousValue.substring(0, start);
+        const oldHyphens = (oldBeforeCursor.match(/-/g) || []).length;
+        const cleanBeforeCursor = oldBeforeCursor.replace(/[^\d]/g, '');
+        const digitCount = cleanBeforeCursor.length;
+        
+        // Find position in new formatted string with same number of digits
+        let newPosition = 0;
+        let digitsFound = 0;
+        for (let i = 0; i < formattedValue.length; i++) {
+            if (formattedValue[i] !== '-') {
+                digitsFound++;
+            }
+            if (digitsFound === digitCount) {
+                newPosition = i + 1;
+                break;
+            }
+        }
+        
+        // If we're at the end, just go to the end
+        if (start === previousValue.length) {
+            newPosition = formattedValue.length;
+        }
+        
+        input.setSelectionRange(newPosition, newPosition);
+    }
 }
 
 // ============================================================================
@@ -57,6 +158,72 @@ function toggleTheme() {
     const currentTheme = document.body.getAttribute('data-theme');
     const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
     document.body.setAttribute('data-theme', newTheme);
+}
+
+// ============================================================================
+// SERVER STATUS MANAGEMENT
+// ============================================================================
+
+async function updateServerStatus() {
+    const statusDot = document.getElementById('input-status-dot');
+    
+    if (!statusDot) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/stats`);
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch stats');
+        }
+        
+        const stats = await response.json();
+        
+        // Update presigned URL expiry hours
+        if (stats.presigned_url_expiry_hours) {
+            presignedURLExpiryHours = stats.presigned_url_expiry_hours;
+        }
+        
+        // Determine server health based on active downloads
+        const activeDownloads = stats.active_downloads || 0;
+        const downloadSlotsFree = stats.download_slots_free || 0;
+        
+        // Remove all status classes
+        statusDot.classList.remove('healthy', 'busy', 'error');
+        
+        // Update aria-label for accessibility
+        if (activeDownloads === 0) {
+            // Green: No active downloads, server is idle
+            statusDot.classList.add('healthy');
+            statusDot.setAttribute('aria-label', 'Server is ready');
+        } else if (downloadSlotsFree > 0) {
+            // Yellow: Some downloads active but slots available
+            statusDot.classList.add('busy');
+            statusDot.setAttribute('aria-label', `Server has ${activeDownloads} active download${activeDownloads > 1 ? 's' : ''}`);
+        } else {
+            // Orange/Yellow: All slots occupied
+            statusDot.classList.add('busy');
+            statusDot.setAttribute('aria-label', 'Server is busy with maximum downloads');
+        }
+        
+    } catch (error) {
+        console.error('[ServerStatus] Error fetching stats:', error);
+        statusDot.classList.remove('healthy', 'busy');
+        statusDot.classList.add('error');
+        statusDot.setAttribute('aria-label', 'Server is offline');
+    }
+}
+
+
+// Start server status monitoring
+function startServerStatusMonitoring() {
+    // Update immediately
+    updateServerStatus();
+    
+    // Then update every 30 seconds
+    if (serverStatusInterval) {
+        clearInterval(serverStatusInterval);
+    }
+    serverStatusInterval = setInterval(updateServerStatus, 30000);
 }
 
 // ============================================================================
@@ -102,6 +269,9 @@ function showDownloadReady(epubSize, epubUrl) {
             sizeSpan.textContent = `(${sizeInMB} MB)`;
         }
         btn.setAttribute('data-url', epubUrl || '');
+        
+        // Show expiration warning
+        showExpirationWarning();
     } else {
         console.error('[Download] Cannot show button - btn:', !!btn, 'epubSize:', epubSize);
     }
@@ -111,6 +281,35 @@ function hideDownloadReady() {
     const btn = document.getElementById('input-download-btn');
     if (btn) {
         btn.classList.add('hidden');
+    }
+    hideExpirationWarning();
+}
+
+// Show expiration warning
+function showExpirationWarning() {
+    const warning = document.getElementById('url-expiration-warning');
+    const expiryTime = document.getElementById('expiry-time');
+    
+    if (warning && expiryTime) {
+        if (presignedURLExpiryHours === 1) {
+            expiryTime.textContent = '1 hour';
+        } else if (presignedURLExpiryHours === 24) {
+            expiryTime.textContent = '24 hours';
+        } else if (presignedURLExpiryHours < 24) {
+            expiryTime.textContent = `${presignedURLExpiryHours} hours`;
+        } else {
+            const days = Math.floor(presignedURLExpiryHours / 24);
+            expiryTime.textContent = `${days} ${days === 1 ? 'day' : 'days'}`;
+        }
+        warning.classList.remove('hidden');
+    }
+}
+
+// Hide expiration warning
+function hideExpirationWarning() {
+    const warning = document.getElementById('url-expiration-warning');
+    if (warning) {
+        warning.classList.add('hidden');
     }
 }
 
@@ -191,13 +390,97 @@ async function startDownload(bookId) {
         };
         
         lastFailedBookId = bookId;
-        pollStatus(downloadId);
+        
+        // Use SSE instead of polling
+        connectSSE(downloadId);
         
     } catch (error) {
         showError('Unable to prepare your book. Please try again.', true);
         hideProcessing();
         hideDownloadReady();
     }
+}
+
+// Connect to SSE for real-time updates
+function connectSSE(downloadId) {
+    if (!downloadId || sseConnections[downloadId]) return;
+    
+    console.log('[SSE] Connecting to stream for:', downloadId);
+    
+    const eventSource = new EventSource(`${API_BASE}/api/stream/${downloadId}`);
+    sseConnections[downloadId] = eventSource;
+    
+    eventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            
+            // Check for error in data
+            if (data.error) {
+                console.error('[SSE] Error from server:', data.error);
+                eventSource.close();
+                delete sseConnections[downloadId];
+                showError('Download not found. Please try again.', true);
+                return;
+            }
+            
+            // Update active downloads
+            activeDownloads[downloadId] = {
+                ...activeDownloads[downloadId],
+                ...data
+            };
+            
+            updateProgress(data, downloadId);
+            
+            if (data.status === 'completed') {
+                handleCompletion(data, downloadId);
+                eventSource.close();
+                delete sseConnections[downloadId];
+            } else if (data.status === 'error') {
+                // Improve error message based on error type
+                let errorMsg = data.error || 'Unable to download this book. Please try again.';
+                
+                // Make error messages more user-friendly
+                if (errorMsg.includes('book not found') || errorMsg.includes('Book not found')) {
+                    errorMsg = '📚 Book not found. Please verify the ISBN number.';
+                } else if (errorMsg.includes('authentication') || errorMsg.includes('cookies')) {
+                    errorMsg = '🔐 Authentication failed. Please refresh your cookies.';
+                } else if (errorMsg.includes('expired')) {
+                    errorMsg = '⏰ Your O\'Reilly subscription has expired.';
+                } else if (errorMsg.includes('Failed to upload')) {
+                    errorMsg = '☁️ Storage error. Please try again.';
+                } else {
+                    errorMsg = `⚠️ ${errorMsg}`;
+                }
+                
+                showError(errorMsg, true);
+                hideProcessing();
+                
+                // Store the failed book ID for retry
+                lastFailedBookId = activeDownloads[downloadId]?.bookId || bookIdInput.value.replace(/[-\s]/g, '');
+                
+                delete activeDownloads[downloadId];
+                eventSource.close();
+                delete sseConnections[downloadId];
+                
+                // Clear the input after showing error so user can try another book
+                setTimeout(() => {
+                    bookIdInput.value = '';
+                }, 100);
+            }
+        } catch (e) {
+            console.error('[SSE] Error parsing message:', e);
+        }
+    };
+    
+    eventSource.onerror = (error) => {
+        console.error('[SSE] Connection error:', error);
+        eventSource.close();
+        delete sseConnections[downloadId];
+        
+        // Fallback to polling if SSE fails
+        console.log('[SSE] Falling back to polling for:', downloadId);
+        pollStatus(downloadId);
+    };
 }
 
 async function pollStatus(downloadId) {
@@ -222,7 +505,17 @@ async function pollStatus(downloadId) {
         if (data.status === 'completed') {
             handleCompletion(data, downloadId);
         } else if (data.status === 'error') {
-            const errorMsg = 'Unable to retrieve this book. Please try again or check the book number.';
+            // Improve error message
+            let errorMsg = data.error || 'Unable to download this book. Please try again.';
+            
+            if (errorMsg.includes('book not found') || errorMsg.includes('Book not found')) {
+                errorMsg = '📚 Book not found. Please verify the ISBN number.';
+            } else if (errorMsg.includes('authentication') || errorMsg.includes('cookies')) {
+                errorMsg = '🔐 Authentication failed. Please refresh your cookies.';
+            } else {
+                errorMsg = `⚠️ ${errorMsg}`;
+            }
+            
             showError(errorMsg, true);
             hideProcessing();
             
@@ -407,6 +700,25 @@ function handleKeyboardShortcuts(e) {
 // BOOK PREVIEW
 // ============================================================================
 
+// Show quick title preview
+function showQuickTitlePreview(title) {
+    const quickPreview = document.getElementById('quick-title-preview');
+    const quickTitleText = document.getElementById('quick-title-text');
+    
+    if (quickPreview && quickTitleText && title) {
+        quickTitleText.textContent = title;
+        quickPreview.classList.remove('hidden');
+    }
+}
+
+// Hide quick title preview
+function hideQuickTitlePreview() {
+    const quickPreview = document.getElementById('quick-title-preview');
+    if (quickPreview) {
+        quickPreview.classList.add('hidden');
+    }
+}
+
 // Display book info in the preview section
 function displayBookInfo(bookInfo, previewCover, previewTitle, previewAuthors, 
                         previewPublisher, previewYear, previewDescription) {
@@ -535,16 +847,33 @@ async function fetchBookPreview(bookId) {
         
         if (!response.ok) {
             hideSearchLoading();
+            hideQuickTitlePreview();
+            
+            // Mark this book as invalid in cache
+            bookValidationCache[bookId] = { valid: false, timestamp: Date.now() };
+            
             if (response.status === 404) {
-                showError('Book not found. Please check the book number and try again.', false);
+                showError('📚 Book not found. Please check the ISBN number and try again.', false);
+            } else if (response.status === 401 || response.status === 403) {
+                showError('🔐 Authentication error. Please refresh your O\'Reilly cookies.', false);
+            } else if (response.status >= 500) {
+                showError('🔧 Server error. Please try again in a moment.', false);
             } else {
-                showError('Unable to retrieve book information. Please try again.', false);
+                showError('⚠️ Unable to retrieve book information. Please try again.', false);
             }
             previewDiv.classList.add('hidden');
             return;
         }
         
         const bookInfo = await response.json();
+        
+        // Mark this book as valid in cache
+        bookValidationCache[bookId] = { valid: true, timestamp: Date.now() };
+        
+        // Show quick title preview immediately
+        if (bookInfo.title) {
+            showQuickTitlePreview(bookInfo.title);
+        }
         
         // Cache this book info for future use
         recentBookSearches[bookId] = bookInfo;
@@ -564,6 +893,7 @@ async function fetchBookPreview(bookId) {
     } catch (error) {
         console.error('Error fetching book preview:', error);
         hideSearchLoading();
+        hideQuickTitlePreview();
     }
 }
 
@@ -598,6 +928,8 @@ function resetUI() {
     hideError();
     hideDownloadReady();
     hideProcessing();
+    hideValidationIndicator();
+    hideQuickTitlePreview();
     
     // Clear current download info
     document.body.removeAttribute('data-current-download');
@@ -637,6 +969,16 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Reset active downloads
     activeDownloads = {};
+    
+    // Start server status monitoring
+    startServerStatusMonitoring();
+});
+
+// Cleanup SSE connections on page unload
+window.addEventListener('beforeunload', () => {
+    Object.values(sseConnections).forEach(eventSource => {
+        eventSource.close();
+    });
 });
 
 // Debounce timer for auto-trigger
@@ -644,10 +986,19 @@ let autoDownloadTimer;
 
 // Input change listener - auto trigger download after user stops typing
 bookIdInput.addEventListener('input', (e) => {
+    // Apply auto-formatting
+    applyISBNFormatting(e.target);
+    
     const bookId = e.target.value.trim();
+    const cleanBookId = bookId.replace(/[-\s]/g, ''); // Remove hyphens for validation
     
     // Clear any existing timers
     clearTimeout(autoDownloadTimer);
+    
+    // Clear validation cache for this book when user modifies input
+    if (bookValidationCache[cleanBookId]) {
+        delete bookValidationCache[cleanBookId];
+    }
     
     // Always reset UI when input changes
     resetUI();
@@ -656,49 +1007,74 @@ bookIdInput.addEventListener('input', (e) => {
     const previewDiv = document.getElementById('book-preview');
     
     // If input is empty, hide everything
-    if (bookId.length === 0) {
+    if (cleanBookId.length === 0) {
         previewDiv.classList.add('hidden');
         hideSearchLoading();
         hideError();
+        hideValidationIndicator();
         return;
     }
     
+    // Show validation indicator as user types (when we have some digits)
+    if (cleanBookId.length > 0 && cleanBookId.length <= 13) {
+        // Only show indicator when we have enough digits to validate
+        if (cleanBookId.length >= 10) {
+            const isValid = isValidISBN13(cleanBookId);
+            showValidationIndicator(isValid);
+        } else {
+            hideValidationIndicator();
+        }
+    }
+    
     // Show loading indicator as soon as user starts typing (at least 3 characters)
-    if (bookId.length >= 3) {
+    if (cleanBookId.length >= 3) {
         showSearchLoading();
     } else {
         hideSearchLoading();
     }
     
     // Check if we have exactly 13 digits
-    if (bookId.length === 13) {
+    if (cleanBookId.length === 13) {
         // Validate ISBN-13 format
-        if (!isValidISBN13(bookId)) {
+        if (!isValidISBN13(cleanBookId)) {
             hideSearchLoading();
-            showError('Please enter a valid 13-digit book number', false);
+            showError('Please enter a valid 13-digit ISBN', false);
             previewDiv.classList.add('hidden');
+            showValidationIndicator(false);
             return;
         }
         
-        // Valid ISBN - fetch preview
-        debounce(() => fetchBookPreview(bookId), 800);
+        // Valid ISBN - show checkmark
+        showValidationIndicator(true);
         
-        // Auto-trigger download after 2 seconds of no typing
+        // Valid ISBN - fetch preview
+        debounce(() => fetchBookPreview(cleanBookId), 800);
+        
+        // Auto-trigger download after 2 seconds of no typing (only if valid and book exists)
         autoDownloadTimer = setTimeout(() => {
-            if (bookIdInput.value.trim() === bookId) {
+            const currentClean = bookIdInput.value.replace(/[-\s]/g, '');
+            if (currentClean === cleanBookId && isValidISBN13(cleanBookId)) {
+                // Check if we already know this book doesn't exist
+                const validation = bookValidationCache[cleanBookId];
+                if (validation && validation.valid === false) {
+                    console.log('[AutoDownload] Skipping download - book not found in preview');
+                    return;
+                }
+                
                 hideError();
                 hideDownloadReady();
                 hideProcessing();
                 document.body.removeAttribute('data-current-download');
-                startDownload(bookId);
+                startDownload(cleanBookId);
             }
         }, 2000);
-    } else if (bookId.length > 13) {
+    } else if (cleanBookId.length > 13) {
         // Too many digits
         hideSearchLoading();
-        showError('Book number should be exactly 13 digits', false);
+        showError('ISBN should be exactly 13 digits', false);
         previewDiv.classList.add('hidden');
-    } else if (bookId.length > 0 && bookId.length < 13) {
+        showValidationIndicator(false);
+    } else if (cleanBookId.length > 0 && cleanBookId.length < 13) {
         // Not enough digits - show subtle hint
         hideSearchLoading();
         previewDiv.classList.add('hidden');
@@ -708,9 +1084,9 @@ bookIdInput.addEventListener('input', (e) => {
 
 // Also fetch preview on blur
 bookIdInput.addEventListener('blur', (e) => {
-    const bookId = e.target.value.trim();
-    if (bookId.length === 13 && isValidISBN13(bookId)) {
-        fetchBookPreview(bookId);
+    const cleanBookId = e.target.value.replace(/[-\s]/g, '');
+    if (cleanBookId.length === 13 && isValidISBN13(cleanBookId)) {
+        fetchBookPreview(cleanBookId);
     }
 });
 
@@ -724,6 +1100,14 @@ retryBtn.addEventListener('click', () => {
 
 // Logo click for theme toggle
 logoClickable.addEventListener('click', toggleTheme);
+
+// Logo keyboard support for accessibility
+logoClickable.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleTheme();
+    }
+});
 
 // Keyboard shortcuts
 document.addEventListener('keydown', handleKeyboardShortcuts);

@@ -77,15 +77,86 @@ type Download struct {
 	EpubURL    string    `json:"epub_url,omitempty"`
 	UploadedAt time.Time `json:"uploaded_at,omitempty"`
 	mutex      sync.RWMutex
+	
+	// SSE support
+	sseClients map[chan DownloadUpdate]bool
+	sseMutex   sync.RWMutex
+}
+
+// DownloadUpdate represents a status update sent via SSE
+type DownloadUpdate struct {
+	Status    string `json:"status"`
+	Progress  int    `json:"progress"`
+	Message   string `json:"message"`
+	Error     string `json:"error,omitempty"`
+	BookTitle string `json:"book_title,omitempty"`
+	FileSize  int64  `json:"file_size,omitempty"`
+	EpubSize  int64  `json:"epub_size,omitempty"`
+	EpubURL   string `json:"epub_url,omitempty"`
+	MinIOURL  string `json:"minio_url,omitempty"`
+	Cached    bool   `json:"cached,omitempty"`
 }
 
 // UpdateStatus safely updates download status
 func (d *Download) UpdateStatus(status, message string, progress int) {
 	d.mutex.Lock()
-	defer d.mutex.Unlock()
 	d.Status = status
 	d.Message = message
 	d.Progress = progress
+	d.mutex.Unlock()
+	
+	// Broadcast to SSE clients
+	d.broadcastUpdate()
+}
+
+// broadcastUpdate sends updates to all connected SSE clients
+func (d *Download) broadcastUpdate() {
+	d.mutex.RLock()
+	update := DownloadUpdate{
+		Status:    d.Status,
+		Progress:  d.Progress,
+		Message:   d.Message,
+		Error:     d.Error,
+		BookTitle: d.BookTitle,
+		FileSize:  d.FileSize,
+		EpubSize:  d.EpubSize,
+		EpubURL:   d.EpubURL,
+		MinIOURL:  d.MinIOURL,
+		Cached:    d.Cached,
+	}
+	d.mutex.RUnlock()
+	
+	d.sseMutex.RLock()
+	defer d.sseMutex.RUnlock()
+	
+	for client := range d.sseClients {
+		select {
+		case client <- update:
+			// Successfully sent
+		default:
+			// Client channel is full or closed, skip
+		}
+	}
+}
+
+// AddSSEClient registers a new SSE client
+func (d *Download) AddSSEClient(client chan DownloadUpdate) {
+	d.sseMutex.Lock()
+	defer d.sseMutex.Unlock()
+	
+	if d.sseClients == nil {
+		d.sseClients = make(map[chan DownloadUpdate]bool)
+	}
+	d.sseClients[client] = true
+}
+
+// RemoveSSEClient unregisters an SSE client
+func (d *Download) RemoveSSEClient(client chan DownloadUpdate) {
+	d.sseMutex.Lock()
+	defer d.sseMutex.Unlock()
+	
+	delete(d.sseClients, client)
+	close(client)
 }
 
 // SetError safely sets error and schedules cleanup
@@ -96,6 +167,9 @@ func (d *Download) SetError(err string, cleanupFunc func(string)) {
 	d.Message = err
 	downloadID := d.ID
 	d.mutex.Unlock()
+	
+	// Broadcast error to SSE clients
+	d.broadcastUpdate()
 	
 	// Cleanup from memory after 2 minutes (enough time for client to see error)
 	if cleanupFunc != nil {
