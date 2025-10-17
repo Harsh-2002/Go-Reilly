@@ -33,7 +33,7 @@
                     <input 
                         type="text" 
                         id="book-id" 
-                        placeholder="Enter ISBN or O'Reilly book URL" 
+                        placeholder="Enter ISBN or URL" 
                         autocomplete="off"
                         aria-label="Book ISBN Number or O'Reilly URL"
                         aria-describedby="isbn-validation-indicator"
@@ -62,6 +62,13 @@
                     <span id="input-epub-size" class="download-size"></span>
                 </button>
             </div>
+            
+            <!-- Mobile Download Button (shows below input bar on mobile) -->
+            <button id="mobile-download-btn" class="mobile-download-btn hidden" aria-label="Download EPUB file">
+                <span class="download-icon" aria-hidden="true">↓</span>
+                <span class="download-text">Download EPUB</span>
+                <span id="mobile-epub-size" class="download-size"></span>
+            </button>
         </div>
         
         <!-- Quick Title Preview -->

@@ -224,7 +224,7 @@ body {
     border-radius: 8px;
     overflow: hidden;
     position: relative;
-    min-height: 60px;
+    min-height: 60px; /* Desktop input bar height */
 }
 
 .input-group:focus-within {
@@ -234,7 +234,9 @@ body {
 #book-id {
     flex: 1;
     width: 100%;
-    padding: 18px 50px 18px 20px; /* Reset left padding, keep right for validation/loading */
+    height: 60px; /* Match input-group height for perfect centering */
+    line-height: 60px; /* Vertically center text and placeholder */
+    padding: 0 50px 0 66px; /* More left padding to offset right indicators */
     font-size: 18px;
     font-family: 'Courier New', Courier, monospace;
     font-weight: 600;
@@ -253,11 +255,15 @@ body {
 
 #book-id::placeholder {
     color: var(--text-secondary);
-    font-size: 13px;
-    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: clamp(12px, 2vw, 14px); /* Responsive and readable */
+    font-family: inherit; /* Match input font for consistent metrics */
     font-weight: normal;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
     text-align: center;
+    line-height: 60px; /* Match input line-height for vertical centering */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .search-loading-indicator {
@@ -403,6 +409,38 @@ body {
     white-space: nowrap;
 }
 
+/* Mobile Download Button - Shows below input bar */
+.mobile-download-btn {
+    display: none; /* Hidden on desktop */
+    width: 100%;
+    padding: 16px 24px;
+    background: var(--text-primary);
+    color: var(--bg-primary);
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, opacity 0.2s ease;
+    margin-top: 12px;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 52px;
+}
+
+.mobile-download-btn:hover {
+    opacity: 0.9;
+}
+
+.mobile-download-btn:active {
+    opacity: 0.75;
+}
+
+.mobile-download-btn.hidden {
+    display: none !important;
+}
+
 .input-download-btn:hover {
     opacity: 0.85;
 }
@@ -439,6 +477,16 @@ body {
 }
 
 [data-theme="light"] .input-download-btn:hover {
+    background: #1a252f;
+    opacity: 1;
+}
+
+[data-theme="light"] .mobile-download-btn {
+    background: #2c3e50;
+    color: #ffffff;
+}
+
+[data-theme="light"] .mobile-download-btn:hover {
     background: #1a252f;
     opacity: 1;
 }
@@ -784,10 +832,16 @@ body {
     }
     
     #book-id {
+        height: 64px; /* Match input-group min-height */
+        line-height: 64px; /* Perfect vertical centering */
         font-size: 16px;
-        padding: 18px 50px 18px 16px; /* More right padding for indicators */
+        padding: 0 50px 0 66px; /* More left padding to offset right indicators */
         letter-spacing: 1.5px;
-        min-height: 48px;
+    }
+    
+    #book-id::placeholder {
+        font-size: clamp(12px, 3.5vw, 14px);
+        line-height: 64px; /* Match input for centering */
     }
     
     /* Adjust indicators for mobile */
@@ -807,13 +861,14 @@ body {
         font-size: 22px;
     }
     
-    /* Larger download button for mobile */
+    /* Hide desktop download button in input bar on mobile */
     .input-download-btn {
-        min-height: 48px;
-        min-width: 48px;
-        padding: 14px 22px;
-        font-size: 14px;
-        gap: 10px;
+        display: none !important; /* Hide on mobile */
+    }
+    
+    /* Show mobile download button below input bar */
+    .mobile-download-btn {
+        display: flex !important; /* Show on mobile */
     }
     
     .download-icon {
@@ -821,7 +876,7 @@ body {
     }
     
     .download-text {
-        font-size: 14px;
+        font-size: 15px;
     }
     
     /* Larger processing status indicator */

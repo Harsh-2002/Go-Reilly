@@ -283,27 +283,48 @@ function hideProcessing() {
 function showDownloadReady(epubSize, epubUrl) {
     hideProcessing();
     
-    // Always get fresh reference from DOM
-    const btn = document.getElementById('input-download-btn');
-    const sizeSpan = document.getElementById('input-epub-size');
+    // Get references for both desktop and mobile buttons
+    const desktopBtn = document.getElementById('input-download-btn');
+    const mobileBtn = document.getElementById('mobile-download-btn');
+    const desktopSizeSpan = document.getElementById('input-epub-size');
+    const mobileSizeSpan = document.getElementById('mobile-epub-size');
     
-    if (btn && epubSize) {
-        console.log('[Download] Showing download button with size:', epubSize);
-        btn.classList.remove('hidden');
-        if (sizeSpan) {
-            const sizeInMB = (epubSize / (1024 * 1024)).toFixed(1);
-            sizeSpan.textContent = `(${sizeInMB} MB)`;
+    if (epubSize) {
+        console.log('[Download] Showing download buttons with size:', epubSize);
+        const sizeInMB = (epubSize / (1024 * 1024)).toFixed(1);
+        const sizeText = `(${sizeInMB} MB)`;
+        
+        // Show desktop button
+        if (desktopBtn) {
+            desktopBtn.classList.remove('hidden');
+            desktopBtn.setAttribute('data-url', epubUrl || '');
+            if (desktopSizeSpan) {
+                desktopSizeSpan.textContent = sizeText;
+            }
         }
-        btn.setAttribute('data-url', epubUrl || '');
+        
+        // Show mobile button
+        if (mobileBtn) {
+            mobileBtn.classList.remove('hidden');
+            mobileBtn.setAttribute('data-url', epubUrl || '');
+            if (mobileSizeSpan) {
+                mobileSizeSpan.textContent = sizeText;
+            }
+        }
     } else {
-        console.error('[Download] Cannot show button - btn:', !!btn, 'epubSize:', epubSize);
+        console.error('[Download] Cannot show buttons - epubSize:', epubSize);
     }
 }
 
 function hideDownloadReady() {
-    const btn = document.getElementById('input-download-btn');
-    if (btn) {
-        btn.classList.add('hidden');
+    const desktopBtn = document.getElementById('input-download-btn');
+    const mobileBtn = document.getElementById('mobile-download-btn');
+    
+    if (desktopBtn) {
+        desktopBtn.classList.add('hidden');
+    }
+    if (mobileBtn) {
+        mobileBtn.classList.add('hidden');
     }
 }
 
@@ -647,27 +668,43 @@ async function handleCompletion(data, downloadId) {
 }
 
 function setupDownloadButtons(fileInfo, downloadId) {
-    const btn = document.getElementById('input-download-btn');
-    if (!btn) {
-        console.error('[Download] Button element not found!');
+    const desktopBtn = document.getElementById('input-download-btn');
+    const mobileBtn = document.getElementById('mobile-download-btn');
+    
+    if (!desktopBtn && !mobileBtn) {
+        console.error('[Download] Button elements not found!');
         return;
     }
     
-    console.log('[Download] Setting up download button');
+    console.log('[Download] Setting up download buttons');
     
-    // Remove old event listeners by cloning
-    const newBtn = btn.cloneNode(true);
-    btn.parentNode.replaceChild(newBtn, btn);
+    const downloadUrl = fileInfo.epub_url || fileInfo.minio_url || `${API_BASE}/api/file/${downloadId}`;
     
-    // Add click handler to the new button
-    newBtn.addEventListener('click', () => {
-        const downloadUrl = fileInfo.epub_url || fileInfo.minio_url || `${API_BASE}/api/file/${downloadId}`;
-        console.log('[Download] Opening:', downloadUrl);
-        window.open(downloadUrl, '_blank');
-    });
+    // Setup desktop button
+    if (desktopBtn) {
+        const newDesktopBtn = desktopBtn.cloneNode(true);
+        desktopBtn.parentNode.replaceChild(newDesktopBtn, desktopBtn);
+        
+        newDesktopBtn.addEventListener('click', () => {
+            console.log('[Download] Opening:', downloadUrl);
+            window.open(downloadUrl, '_blank');
+        });
+        
+        newDesktopBtn.classList.remove('hidden');
+    }
     
-    // Ensure button is visible
-    newBtn.classList.remove('hidden');
+    // Setup mobile button
+    if (mobileBtn) {
+        const newMobileBtn = mobileBtn.cloneNode(true);
+        mobileBtn.parentNode.replaceChild(newMobileBtn, mobileBtn);
+        
+        newMobileBtn.addEventListener('click', () => {
+            console.log('[Download] Opening:', downloadUrl);
+            window.open(downloadUrl, '_blank');
+        });
+        
+        newMobileBtn.classList.remove('hidden');
+    }
 }
 
 // ============================================================================
