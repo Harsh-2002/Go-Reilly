@@ -45,6 +45,32 @@ function isValidISBN13(isbn) {
     return true;
 }
 
+// Extract ISBN from O'Reilly URL
+function extractISBNFromURL(input) {
+    // If it's not a URL, return as-is
+    if (!input.includes('oreilly.com') && !input.includes('http')) {
+        return input;
+    }
+    
+    // Patterns to match O'Reilly URLs:
+    // 1. https://learning.oreilly.com/library/view/book-name/9781491936153/
+    // 2. https://www.oreilly.com/library/view/book-name/9781491936153/
+    // 3. https://learning.oreilly.com/library/view/book-name/9781491936153/ch11.html
+    
+    // Match 13-digit ISBN in URL path (starts with 978 or 979)
+    const isbnPattern = /\/(97[89]\d{10})\/?/;
+    const match = input.match(isbnPattern);
+    
+    if (match && match[1]) {
+        console.log('[URL Detection] Extracted ISBN:', match[1]);
+        return match[1];
+    }
+    
+    // If no ISBN found in URL, return original input
+    console.log('[URL Detection] No ISBN found in URL');
+    return input;
+}
+
 // Show validation indicator
 function showValidationIndicator(isValid) {
     if (!isbnValidationIndicator) return;
@@ -570,8 +596,20 @@ async function handleCompletion(data, downloadId) {
     try {
         let fileInfo;
         
-        // If cached, use the data directly
-        if (isCached) {
+        // If we have epub_size in the SSE data, use it directly (first download)
+        if (data.epub_size || data.file_size) {
+            console.log('[Download] Using size from SSE data:', data.epub_size || data.file_size);
+            fileInfo = {
+                title: data.book_title || 'Unknown Title',
+                epub_size: data.epub_size || data.file_size,
+                book_id: data.book_id,
+                cached: isCached,
+                epub_url: data.epub_url || data.minio_url,
+                minio_url: data.minio_url || data.epub_url,
+                uploaded_at: data.uploaded_at
+            };
+        } else if (isCached) {
+            // Cached book without size in SSE, use data directly
             fileInfo = {
                 title: data.book_title || 'Unknown Title',
                 epub_size: data.epub_size || 0,
@@ -581,7 +619,8 @@ async function handleCompletion(data, downloadId) {
                 uploaded_at: data.uploaded_at
             };
         } else {
-            // Fetch file info from API
+            // Fallback: Fetch file info from API (shouldn't happen normally)
+            console.log('[Download] Fetching file info from API as fallback');
             const fileInfoResponse = await fetch(`${API_BASE}/api/file/${downloadId}/info`);
             if (!fileInfoResponse.ok) {
                 throw new Error('Unable to retrieve book information');
@@ -592,7 +631,7 @@ async function handleCompletion(data, downloadId) {
         activeDownloads[downloadId].fileInfo = fileInfo;
         
         // Always show download button for completed downloads
-        console.log('[Download] Showing download button for:', downloadId);
+        console.log('[Download] Showing download button with size:', fileInfo.epub_size);
         showDownloadReady(
             fileInfo.epub_size || fileInfo.file_size,
             fileInfo.epub_url || fileInfo.minio_url
@@ -950,6 +989,18 @@ let autoDownloadTimer;
 
 // Input change listener - auto trigger download after user stops typing
 bookIdInput.addEventListener('input', (e) => {
+    let inputValue = e.target.value.trim();
+    
+    // Extract ISBN from URL if it's a URL
+    const extractedISBN = extractISBNFromURL(inputValue);
+    
+    // If we extracted an ISBN from URL, update the input field
+    if (extractedISBN !== inputValue && extractedISBN.match(/^\d{13}$/)) {
+        e.target.value = extractedISBN;
+        inputValue = extractedISBN;
+        console.log('[URL Detection] Updated input with extracted ISBN:', extractedISBN);
+    }
+    
     // Apply auto-formatting
     applyISBNFormatting(e.target);
     
@@ -1042,6 +1093,24 @@ bookIdInput.addEventListener('blur', (e) => {
     if (cleanBookId.length === 13 && isValidISBN13(cleanBookId)) {
         fetchBookPreview(cleanBookId);
     }
+});
+
+// Handle paste events - extract ISBN from URLs immediately
+bookIdInput.addEventListener('paste', (e) => {
+    // Small delay to let the paste complete
+    setTimeout(() => {
+        const pastedValue = e.target.value.trim();
+        const extractedISBN = extractISBNFromURL(pastedValue);
+        
+        // If we extracted an ISBN from a URL, update the field
+        if (extractedISBN !== pastedValue && extractedISBN.match(/^\d{13}$/)) {
+            e.target.value = extractedISBN;
+            console.log('[Paste] Extracted ISBN from URL:', extractedISBN);
+            
+            // Trigger input event to process the ISBN
+            e.target.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    }, 10);
 });
 
 // Retry button
