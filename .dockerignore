@@ -1,9 +1,6 @@
 .git
 .gitignore
 README.md
-Books
-Converted
 cookies.json
 goreilly
-cmd/server/static
 .env
