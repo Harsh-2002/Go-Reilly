@@ -5,7 +5,7 @@ services:
     env_file:
       - ./.env
     volumes:
-      - ./cookies.json:/app/cookies.json
+      - ./cookies.json:/config/cookies.json
     network_mode: host
     restart: always
     depends_on:
