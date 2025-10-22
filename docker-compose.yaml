@@ -1,7 +1,7 @@
 services:
   go-reilly:
     image: go-reilly:latest
-    container_name: go-reilly
+    container_name: goreilly
     env_file:
       - ./.env
     volumes:
