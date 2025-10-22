@@ -1,14 +1,40 @@
 services:
+  go-reilly:
+    image: go-reilly:latest
+    container_name: go-reilly
+    env_file:
+      - ./.env
+    volumes:
+      - ./cookies.json:/app/cookies.json
+    network_mode: host
+    restart: always
+    depends_on:
+      - redis
+      - minio
+
   redis:
     image: redis:latest
-    container_name: redis-secure
-    command: ["redis-server", "--requirepass", "z6kKkxdBDSFkTTV1bP62TOdoBhI="]
-    ports:
-      - "6379:6379"
+    container_name: goreilly-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
-    restart: unless-stopped
+    network_mode: host  
+    restart: always
+
+  minio:
+    image: minio/minio:latest
+    container_name: goreilly-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    network_mode: host
+    restart: always
 
 volumes:
   redis_data:
-
+  minio_data:
