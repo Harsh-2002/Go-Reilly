@@ -189,7 +189,7 @@ body {
     margin-bottom: 0;
     padding: 12px 20px;
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    border: 2px solid var(--border-color);
     border-radius: 8px;
     text-align: center;
     animation: fadeIn 0.3s ease;
@@ -320,11 +320,7 @@ body {
 }
 
 .isbn-validation-indicator.valid .validation-icon::before {
-    content: '✓';
-    color: var(--success-color);
-    font-size: 20px;
-    font-weight: bold;
-    animation: scaleIn 0.2s ease;
+    content: '';
 }
 
 .isbn-validation-indicator.invalid .validation-icon::before {
